@@ -28,6 +28,8 @@ from .magsystems import get_magsystem
 from .salt2utils import BicubicInterpolator, SALT2ColorLaw
 from .utils import integration_grid
 
+import jax.numpy as jnp
+
 __all__ = ['get_source', 'Source', 'TimeSeriesSource', 'StretchSource',
            'SUGARSource', 'SALT2Source', 'SALT3Source', 'MLCS2k2Source',
            'SNEMOSource', 'Model', 'PropagationEffect', 'CCM89Dust',
@@ -1078,7 +1080,7 @@ class SALT3Source(SALT2Source):
         self.name = name
         self.version = version
         self._model = {}
-        self._parameters = np.array([1., 0., 0.])
+        self._parameters = jnp.array([1., 0., 0.])
 
         names_or_objs = {'M0': m0file, 'M1': m1file,
                          'LCRV00': lcrv00file, 'LCRV11': lcrv11file,
