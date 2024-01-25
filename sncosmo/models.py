@@ -25,12 +25,18 @@ from .io import (
     read_multivector_griddata_ascii
 )
 from .magsystems import get_magsystem
-# from .salt2utils import BicubicInterpolator
+
+
 from .utils import integration_grid
 
 from .colorlaw_python import colorlaw_python as SALT2ColorLaw
-from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
 
+python = true
+
+if python:
+    from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
+else:
+    from .salt2utils import BicubicInterpolator
 
 __all__ = ['get_source', 'Source', 'TimeSeriesSource', 'StretchSource',
            'SUGARSource', 'SALT2Source', 'SALT3Source', 'MLCS2k2Source',
