@@ -25,7 +25,7 @@ from .io import (
     read_multivector_griddata_ascii
 )
 from .magsystems import get_magsystem
-from .salt2utils import BicubicInterpolator, SALT2ColorLaw
+from .salt2utils_native import BicubicInterpolator, SALT2ColorLaw
 from .utils import integration_grid
 
 import jax.numpy as jnp
@@ -147,7 +147,7 @@ def _bandflux(model, band, time_or_phase, zp, zpsys):
         zpsys = np.atleast_1d(zpsys)
 
     # initialize output arrays
-    bandflux = np.zeros(time_or_phase.shape, dtype=float)
+    bandflux = jnp.zeros(time_or_phase.shape, dtype=float)
 
     # Loop over unique bands.
     for b in set(band):
@@ -165,7 +165,7 @@ def _bandflux(model, band, time_or_phase, zp, zpsys):
                 zpnorm[mask2] = zpnorm[mask2] / ms.zpbandflux(b)
             fsum *= zpnorm
 
-        bandflux[mask] = fsum
+        bandflux = bandflux.at[mask].set(fsum)
 
     if ndim == 0:
         return bandflux[0]
@@ -178,17 +178,20 @@ def _bandmag(model, band, magsys, time_or_phase):
     Source and ``time`` is used in Model.
     """
     bandflux = _bandflux(model, band, time_or_phase, None, None)
-    band, magsys, bandflux = np.broadcast_arrays(band, magsys, bandflux)
+    band, magsys = np.broadcast_arrays(band, magsys)
+    # bandflux = jnp.broadcast_arrays(bandflux)
     return_scalar = (band.ndim == 0)
     band = band.ravel()
     magsys = magsys.ravel()
+    # print(type(bandflux))
     bandflux = bandflux.ravel()
 
-    result = np.empty(bandflux.shape, dtype=float)
+    result = jnp.empty(bandflux.shape, dtype=float)
     for i, (b, ms, f) in enumerate(zip(band, magsys, bandflux)):
         ms = get_magsystem(ms)
         zpf = ms.zpbandflux(b)
-        result[i] = -2.5 * np.log10(f / zpf)
+        print(f,zpf)
+        result = result.at[i].set(-2.5 * jnp.log10(f / zpf))
 
     if return_scalar:
         return result[0]
@@ -234,7 +237,7 @@ class _ModelBase(object):
             i = self._param_names.index(key)
         except ValueError:
             raise KeyError("Unknown parameter: " + repr(key))
-        self._parameters.at[i].set(value)
+        self._parameters= self._parameters.at[i].set(value)
         # self._parameters[i] = value
 
     def get(self, name):
@@ -1452,12 +1455,16 @@ class Model(_ModelBase):
         # copy old parameters: we do this to make sure we copy
         # non-default values of any parameters that the model alone
         # holds, such as z, t0 and effect redshifts.
-        self._parameters[0:len(old_parameters)] = old_parameters
+        for idx in range(len(old_parameters)):
+            self._parameters.at[idx].set(old_parameters[idx])
+        # self._parameters[0:len(old_parameters)] = old_parameters
 
         # cross-reference source's parameters
         pos = 2
         l = len(self._source._parameters)
-        self._parameters[pos:pos+l] = self._source._parameters  # copy
+        for idx in range(l):
+            self._parameters.at[pos+idx].set(self._source._parameters[idx])  # copy        
+        # self._parameters[pos:pos+l] = self._source._parameters  # copy
         self._source._parameters = self._parameters[pos:pos+l]  # reference
         pos += l
 

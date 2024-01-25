@@ -12,6 +12,7 @@ import numpy as np
 # from cpython.mem cimport PyMem_Malloc, PyMem_Free
 # from libc.math cimport fabs
 # from libc.string cimport memcpy
+import jax.numpy as jnp
 
 
 def find_index_binary(values, n, x):
@@ -84,7 +85,7 @@ C = A + 3.0
 
 
 def kernval(xval):
-     x = np.abs(xval)
+     x = jnp.abs(xval)
      if x > 2.0:
          return 0.0
      if x < 1.0:
@@ -174,8 +175,8 @@ class BicubicInterpolator(object):
         del self.fval_storage
 
     def __call__(self, x, y):
-        xc = np.atleast_1d(np.asarray(x, dtype=np.float64))
-        yc = np.atleast_1d(np.asarray(y, dtype=np.float64))
+        xc = jnp.atleast_1d(jnp.asarray(x, dtype=jnp.float32))
+        yc = jnp.atleast_1d(jnp.asarray(y, dtype=jnp.float32))
         ix = 0
         iy = 0
         nxc = xc.shape[0]
@@ -183,12 +184,12 @@ class BicubicInterpolator(object):
         wx = [0., 0., 0., 0.]
 
         # allocate result
-        result = np.empty((nxc, nyc), dtype=np.float64)
+        result = jnp.empty((nxc, nyc), dtype=jnp.float32)
         result_view = result
 
         # allocate arrays of y indicies and weights
         # (could use static storage here for small vectors)
-        wyvec = np.zeros(nyc * 4) # <double *>PyMem_Malloc(nyc * 4 * sizeof(double))
+        wyvec = jnp.zeros(nyc * 4) # <double *>PyMem_Malloc(nyc * 4 * sizeof(double))
         iyvec = np.zeros(nyc, dtype=int) #<int *>PyMem_Malloc(nyc * sizeof(int))
 
         # flags: -1 == "skip, return 0", 0 == "linear", 1 == "cubic"
@@ -227,10 +228,12 @@ class BicubicInterpolator(object):
                     # precompute weights
                     dy = ((self.yval[iy] - y_j) /
                           (self.yval[iy+1] - self.yval[iy]))
-                    wyvec[4*j+0] = kernval(dy-1.0)
-                    wyvec[4*j+1] = kernval(dy)
-                    wyvec[4*j+2] = kernval(dy+1.0)
-                    wyvec[4*j+3] = kernval(dy+2.0)
+
+                    
+                    wyvec = wyvec.at[4*j+0].set(kernval(dy-1.0))
+                    wyvec = wyvec.at[4*j+1].set(kernval(dy))
+                    wyvec = wyvec.at[4*j+2].set(kernval(dy+1.0))
+                    wyvec = wyvec.at[4*j+3].set(kernval(dy+2.0))
 
         # main loop
         for i in range(nxc):
@@ -277,7 +280,7 @@ class BicubicInterpolator(object):
                         # If either dimension is 1, just return a close-ish
                         # value
                         if self.nx == 1 or self.ny == 1:
-                            result_view[i, j] = self.zc[ix,iy]
+                            result_view = result_view.at[i, j].set(self.zc[ix,iy])
                         else:
                             ax = ((x_i - self.xval[ix]) /
                                   (self.xval[ix+1] - self.xval[ix]))
@@ -285,7 +288,7 @@ class BicubicInterpolator(object):
                                   (self.yval[iy+1] - self.yval[iy]))
                             ay2 = 1.0 - ay
                             
-                            result_view[i, j] = (
+                            result_view = result_view.at[i, j].set(
                                 (1.0 - ax) * (ay2 * self.zc[ix  , iy  ] +
                                               ay  * self.zc[ix  , iy+1]) +
                                 ax         * (ay2 * self.zc[ix+1, iy  ] +
@@ -293,7 +296,7 @@ class BicubicInterpolator(object):
 
                     # Full cubic convolution
                     else:
-                        result_view[i, j] = (
+                        result_view = result_view.at[i, j].set(
                             wx[0] * (wyvec[4*j+0] * self.zc[ix-1, iy-1] +
                                      wyvec[4*j+1] * self.zc[ix-1, iy  ] +
                                      wyvec[4*j+2] * self.zc[ix-1, iy+1] +
@@ -438,24 +441,24 @@ class SALT2ColorLaw(object):
         #     np.ndarray[np.float64_t, ndim=1] out
 
         n = wave.shape[0]
-        out = np.empty(n, dtype=np.float64)
+        out = jnp.empty(n, dtype=jnp.float32)
 
         for i in range(n):
             l = (wave[i] - SALT2CL_B) / SALT2CL_V_MINUS_B
 
             # Blue side
             if l < self.l_lo:
-                out[i] = self.p_lo + self.pprime_lo * (l - self.l_lo)
+                out = out.at[i].set( self.p_lo + self.pprime_lo * (l - self.l_lo))
 
             # in between
             elif l <= self.l_hi:
-                out[i] = polyval(self.coeffs, self.ncoeffs, l)
+                out = out.at[i].set( polyval(self.coeffs, self.ncoeffs, l))
 
             # red side
             else:
-                out[i] = self.p_hi + self.pprime_hi * (l - self.l_hi)
+                out = out.at[i].set( self.p_hi + self.pprime_hi * (l - self.l_hi))
 
-            out[i] = -out[i]
+            out = out.at[i].set( -out[i])
 
         return out
 
