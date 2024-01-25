@@ -6,6 +6,7 @@ colorlaw_coeffs = [-0.504294, 0.787691, -0.461715, 0.0815619]
 colorlaw_range = (2800., 7000.)
 
 # old python implementation
+
 def colorlaw_python(wave):
     v_minus_b = V_WAVELENGTH - B_WAVELENGTH
 

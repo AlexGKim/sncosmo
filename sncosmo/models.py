@@ -29,14 +29,14 @@ from .magsystems import get_magsystem
 
 from .utils import integration_grid
 
-from .colorlaw_python import colorlaw_python as SALT2ColorLaw
-
-python = true
+python = True
+# python = False
 
 if python:
     from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
+    from .colorlaw_python import colorlaw_python
 else:
-    from .salt2utils import BicubicInterpolator
+    from .salt2utils import BicubicInterpolator, SALT2ColorLaw
 
 __all__ = ['get_source', 'Source', 'TimeSeriesSource', 'StretchSource',
            'SUGARSource', 'SALT2Source', 'SALT3Source', 'MLCS2k2Source',
@@ -956,41 +956,43 @@ class SALT2Source(Source):
     def _set_colorlaw_from_file(self, name_or_obj):
         """Read color law file and set the internal colorlaw function."""
 
-        # Read file
-        if isinstance(name_or_obj, str):
-            f = open(name_or_obj, 'r')
+        if python:
+            self._colorlaw = colorlaw_python
         else:
-            f = name_or_obj
-        words = f.read().split()
-        f.close()
-
-        # Get colorlaw coeffecients.
-        ncoeffs = int(words[0])
-        colorlaw_coeffs = [float(word) for word in words[1: 1 + ncoeffs]]
-
-        # If there are more than 1+ncoeffs words in the file, we expect them to
-        # be of the form `keyword value`.
-        version = None
-        colorlaw_range = [3000., 7000.]
-        for i in range(1+ncoeffs, len(words), 2):
-            if words[i] == 'Salt2ExtinctionLaw.version':
-                version = int(words[i+1])
-            elif words[i] == 'Salt2ExtinctionLaw.min_lambda':
-                colorlaw_range[0] = float(words[i+1])
-            elif words[i] == 'Salt2ExtinctionLaw.max_lambda':
-                colorlaw_range[1] = float(words[i+1])
+            # Read file
+            if isinstance(name_or_obj, str):
+                f = open(name_or_obj, 'r')
             else:
-                raise RuntimeError("Unexpected keyword: {}".format(words[i]))
+                f = name_or_obj
+            words = f.read().split()
+            f.close()
 
-        # Set extinction function to use.
-        if version == 0:
-            raise RuntimeError("Salt2ExtinctionLaw.version 0 not supported.")
-        elif version == 1:
-            self._colorlaw = SALT2ColorLaw
-            # self._colorlaw = SALT2ColorLaw(colorlaw_range, colorlaw_coeffs)
-        else:
-            raise RuntimeError('unrecognized Salt2ExtinctionLaw.version: ' +
-                               version)
+            # Get colorlaw coeffecients.
+            ncoeffs = int(words[0])
+            colorlaw_coeffs = [float(word) for word in words[1: 1 + ncoeffs]]
+
+            # If there are more than 1+ncoeffs words in the file, we expect them to
+            # be of the form `keyword value`.
+            version = None
+            colorlaw_range = [3000., 7000.]
+            for i in range(1+ncoeffs, len(words), 2):
+                if words[i] == 'Salt2ExtinctionLaw.version':
+                    version = int(words[i+1])
+                elif words[i] == 'Salt2ExtinctionLaw.min_lambda':
+                    colorlaw_range[0] = float(words[i+1])
+                elif words[i] == 'Salt2ExtinctionLaw.max_lambda':
+                    colorlaw_range[1] = float(words[i+1])
+                else:
+                    raise RuntimeError("Unexpected keyword: {}".format(words[i]))
+
+            # Set extinction function to use.
+            if version == 0:
+                raise RuntimeError("Salt2ExtinctionLaw.version 0 not supported.")
+            elif version == 1:
+                self._colorlaw = SALT2ColorLaw(colorlaw_range, colorlaw_coeffs)
+            else:
+                raise RuntimeError('unrecognized Salt2ExtinctionLaw.version: ' +
+                                   version)
 
     def colorlaw(self, wave=None):
         """Return the value of the CL function for the given wavelengths.
