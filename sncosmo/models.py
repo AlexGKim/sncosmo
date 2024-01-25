@@ -25,8 +25,12 @@ from .io import (
     read_multivector_griddata_ascii
 )
 from .magsystems import get_magsystem
-from .salt2utils import BicubicInterpolator, SALT2ColorLaw
+# from .salt2utils import BicubicInterpolator
 from .utils import integration_grid
+
+from .colorlaw_python import colorlaw_python as SALT2ColorLaw
+from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
+
 
 __all__ = ['get_source', 'Source', 'TimeSeriesSource', 'StretchSource',
            'SUGARSource', 'SALT2Source', 'SALT3Source', 'MLCS2k2Source',
@@ -976,7 +980,8 @@ class SALT2Source(Source):
         if version == 0:
             raise RuntimeError("Salt2ExtinctionLaw.version 0 not supported.")
         elif version == 1:
-            self._colorlaw = SALT2ColorLaw(colorlaw_range, colorlaw_coeffs)
+            self._colorlaw = SALT2ColorLaw
+            # self._colorlaw = SALT2ColorLaw(colorlaw_range, colorlaw_coeffs)
         else:
             raise RuntimeError('unrecognized Salt2ExtinctionLaw.version: ' +
                                version)
