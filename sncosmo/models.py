@@ -29,11 +29,27 @@ from .magsystems import get_magsystem
 
 from .utils import integration_grid
 
+import jax.numpy as jnp
+
+
+jax = True
 python = True
 # python = False
 
 if python:
-    from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
+    if jax:
+        import interpax
+        class BucubicInterpolator (object):
+            def __init__(self, phase, wave, values):
+                self.phase = phase
+                self.wave = wave
+                self.values = values
+
+            def __call__ (self, phase, wave):
+                return interpax.interp2d(phase, wave, self.phase. self.wave, self.values, method='cubic')
+    else:
+        from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
+
     from .colorlaw_python import colorlaw_python
 else:
     from .salt2utils import BicubicInterpolator, SALT2ColorLaw
@@ -222,10 +238,16 @@ class _ModelBase(object):
 
     @parameters.setter
     def parameters(self, value):
-        value = np.asarray(value)
-        if value.shape != self._parameters.shape:
-            raise ValueError("Incorrect number of parameters.")
-        self._parameters[:] = value
+        if jax:
+            if len(value) != len(self._parameters):
+                raise ValueError("Incorrect number of parameters.")
+            for idx in range(len(value)):
+                self._parameters[idx] = value[idx]
+        else:
+            value = np.asarray(value)
+            if value.shape != self._parameters.shape:
+                raise ValueError("Incorrect number of parameters.")
+            self._parameters[:] = value
 
     def set(self, **param_dict):
         """Set parameters of the model by name."""
@@ -1091,7 +1113,10 @@ class SALT3Source(SALT2Source):
         self.name = name
         self.version = version
         self._model = {}
-        self._parameters = np.array([1., 0., 0.])
+        if jax:
+            self._parameters = [1., 0., 0.]
+        else:
+            self._parameters = np.array([1., 0., 0.])
 
         names_or_objs = {'M0': m0file, 'M1': m1file,
                          'LCRV00': lcrv00file, 'LCRV11': lcrv11file,
@@ -1343,7 +1368,11 @@ class Model(_ModelBase):
         # Set parameter names, initial values (inital values set to zero)
         self._param_names = ['z', 't0']
         self.param_names_latex = ['z', 't_0']
-        self._parameters = np.zeros(2, dtype=float)
+        if jax:
+            self._parameters = [0., 0.]
+        else:
+            self._parameters = np.zeros(2, dtype=float)
+
 
         # Set source and add source parameter names
         self._source = get_source(source, copy=True)
@@ -1457,7 +1486,10 @@ class Model(_ModelBase):
 
         # allocate new array (zeros so that new 'free' effects redshifts
         # initialize to 0)
-        self._parameters = np.zeros(l, dtype=float)
+        if jax:
+            self._parameters = [0. for i in range(l)]
+        else:
+            self._parameters = np.zeros(l, dtype=float)
 
         # copy old parameters: we do this to make sure we copy
         # non-default values of any parameters that the model alone
