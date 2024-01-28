@@ -39,7 +39,7 @@ python = True
 if python:
     if jax:
         import interpax
-        class BucubicInterpolator (object):
+        class BicubicInterpolator (object):
             def __init__(self, phase, wave, values):
                 self.phase = phase
                 self.wave = wave
