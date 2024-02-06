@@ -30,29 +30,24 @@ from .magsystems import get_magsystem
 from .utils import integration_grid
 
 import jax.numpy as jnp
-
+from jax import grad, jit, vmap
 
 jax = True
 python = True
 # python = False
+# jax = False
 
 if python:
     if jax:
-        import interpax
-        class BicubicInterpolator (object):
-            def __init__(self, phase, wave, values):
-                self.phase = phase
-                self.wave = wave
-                self.values = values
-
-            def __call__ (self, phase, wave):
-                return interpax.interp2d(phase, wave, self.phase. self.wave, self.values, method='cubic')
+        from interpax import Interpolator2D as BicubicInterpolator
     else:
         from scipy.interpolate import RectBivariateSpline as BicubicInterpolator
 
     from .colorlaw_python import colorlaw_python
 else:
     from .salt2utils import BicubicInterpolator, SALT2ColorLaw
+
+# from .salt2utils import  SALT2ColorLaw
 
 __all__ = ['get_source', 'Source', 'TimeSeriesSource', 'StretchSource',
            'SUGARSource', 'SALT2Source', 'SALT3Source', 'MLCS2k2Source',
@@ -141,11 +136,49 @@ def _bandflux_single(model, band, time_or_phase):
                                    MODEL_BANDFLUX_SPACING)
     trans = band(wave)
     f = model._flux(time_or_phase, wave)
+    if jax and f.ndim==1 :
+        f = jnp.reshape(f, (len(time_or_phase), len(wave)))
+    return jnp.sum(wave * trans * f, axis=1) * dwave / HC_ERG_AA
 
-    return np.sum(wave * trans * f, axis=1) * dwave / HC_ERG_AA
+
+def _bandflux_singleband_onezp(model, band, time_or_phase, zp, zpsys):
+    """Synthetic photometry of model through a single bandpass with zeropoints
+
+    Parameters
+    ----------
+    model : Source or Model
+    band : Bandpass
+    time_or_phase : `~numpy.ndarray` (1-d)
+    zp, zpsys : zeropoint and system scalars
+    """
+
+    b = get_bandpass(band)
+
+    fsum = _bandflux_single(model, b, time_or_phase)
+
+    if zp is not None:
+        zpnorm = 10.**(0.4 * zp)
+        ms = get_magsystem(zpsys)
+        zpnorm = zpnorm / ms.zpbandflux(b)
+        fsum *= zpnorm
+    return fsum
 
 
-def _bandflux(model, band, time_or_phase, zp, zpsys):
+def _bandflux_singleband_multizp(model, band, time_or_phase, zp, zpsys):
+    if np.isscalar(zp) and np.isscalar(zpsys) or zp is None or zpsys is None:
+        return _bandflux_singleband_onezp(model, band, time_or_phase, zp, zpsys)
+    else:
+        return vmap(_bandflux_singleband_onezp,(None, None, None, 1, 1))(model, band, time_or_phase, zp, zpsys)
+
+
+def _bandflux_jax(model, band, time_or_phase, zp, zpsys):
+    if np.isscalar(band):
+        return _bandflux_singleband_multizp(model, band, time_or_phase, zp, zpsys)
+    else:
+        return vmap(_bandflux_singleband_multizp,(None, 1, None, None, None))(model, band, time_or_phase, zp, zpsys)
+
+
+def _bandflux_nojax(model, band, time_or_phase, zp, zpsys):
     """Support function for bandflux in Source and Model.
     This is necessary to have outside because ``phase`` is used in Source
     and ``time`` is used in Model, and we want the method signatures to
@@ -196,12 +229,12 @@ def _bandflux(model, band, time_or_phase, zp, zpsys):
     return bandflux
 
 
-def _bandmag(model, band, magsys, time_or_phase):
+def _bandmag_jax(model, band, magsys, time_or_phase):
     """Support function for bandflux in Source and Model.
     This is necessary to have outside the models because ``phase`` is used in
     Source and ``time`` is used in Model.
     """
-    bandflux = _bandflux(model, band, time_or_phase, None, None)
+    bandflux = _bandflux_jax(model, band, time_or_phase, None, None)
     band, magsys, bandflux = np.broadcast_arrays(band, magsys, bandflux)
     return_scalar = (band.ndim == 0)
     band = band.ravel()
@@ -216,7 +249,39 @@ def _bandmag(model, band, magsys, time_or_phase):
 
     if return_scalar:
         return result[0]
+
     return result
+
+def _bandmag_nojax(model, band, magsys, time_or_phase):
+    """Support function for bandflux in Source and Model.
+    This is necessary to have outside the models because ``phase`` is used in
+    Source and ``time`` is used in Model.
+    """
+    bandflux = _bandflux_nojax(model, band, time_or_phase, None, None)
+    band, magsys, bandflux = np.broadcast_arrays(band, magsys, bandflux)
+    return_scalar = (band.ndim == 0)
+    band = band.ravel()
+    magsys = magsys.ravel()
+    bandflux = bandflux.ravel()
+
+    result = np.empty(bandflux.shape, dtype=float)
+    for i, (b, ms, f) in enumerate(zip(band, magsys, bandflux)):
+        ms = get_magsystem(ms)
+        zpf = ms.zpbandflux(b)
+        result[i] = -2.5 * np.log10(f / zpf)
+
+    if return_scalar:
+        return result[0]
+
+    return result
+
+if jax:
+    _bandflux = _bandflux_jax
+    _bandmag = _bandmag_jax
+else:
+    _bandflux = _bandflux_nojax
+    _bandmag = _bandmag_nojax
+
 
 
 class _ModelBase(object):
@@ -840,7 +905,10 @@ class SALT2Source(Source):
 
     def _flux(self, phase, wave):
         m0 = self._model['M0'](phase, wave)
+        print(m0[10:15])
         m1 = self._model['M1'](phase, wave)
+        print(m1[10:15])
+        print(self._parameters[0], self._parameters[1])
         return (self._parameters[0] * (m0 + self._parameters[1] * m1) *
                 10. ** (-0.4 * self._colorlaw(wave) * self._parameters[2]))
 
@@ -1134,7 +1202,10 @@ class SALT3Source(SALT2Source):
         for key in ['M0', 'M1']:
             phase, wave, values = read_griddata_ascii(names_or_objs[key])
             values *= self._SCALE_FACTOR
-            self._model[key] = BicubicInterpolator(phase, wave, values)
+            if python and jax:
+                self._model[key] = BicubicInterpolator(phase, wave, values, extrap=[[0.,0.],[0., 0.]])
+            else:
+                self._model[key] = BicubicInterpolator(phase, wave, values)
 
             # The "native" phases and wavelengths of the model are those
             # of the first model component.
@@ -1146,7 +1217,10 @@ class SALT3Source(SALT2Source):
         for key in ['LCRV00', 'LCRV11', 'LCRV01']:
             phase, wave, values = read_griddata_ascii(names_or_objs[key])
             values *= self._SCALE_FACTOR**2.
-            self._model[key] = BicubicInterpolator(phase, wave, values)
+            if python and jax:
+                self._model[key] = BicubicInterpolator(phase, wave, values, extrap=[[0.,0.],[0., 0.]])
+            else:
+                self._model[key] = BicubicInterpolator(phase, wave, values)
 
         # Set the colorlaw based on the "color correction" file.
         self._set_colorlaw_from_file(names_or_objs['clfile'])
